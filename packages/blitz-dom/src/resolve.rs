@@ -24,16 +24,16 @@ use style::selector_parser::RestyleDamage;
 use taffy::AvailableSpace;
 
 use crate::{
-    BaseDocument, NON_INCREMENTAL,
     events::ScrollAnimationState,
     layout::{
         construct::{
-            ConstructionTask, ConstructionTaskData, ConstructionTaskResult,
-            ConstructionTaskResultData, build_inline_layout_into, collect_layout_children,
+            build_inline_layout_into, collect_layout_children, ConstructionTask,
+            ConstructionTaskData, ConstructionTaskResult, ConstructionTaskResultData,
         },
         damage::{ALL_DAMAGE, CONSTRUCT_BOX, CONSTRUCT_DESCENDENT, CONSTRUCT_FC},
     },
     node::TextBrush,
+    BaseDocument, NON_INCREMENTAL,
 };
 
 impl BaseDocument {
@@ -71,6 +71,21 @@ impl BaseDocument {
 
         self.resolve_deferred_tasks();
         timer.record_time("pconstruct");
+
+        // Handle initial invalidation on first resolve (fixes initialization issues
+        // where set_viewport is called before DOM exists)
+        if self.needs_initial_invalidation {
+            self.invalidate_inline_contexts();
+            self.needs_initial_invalidation = false;
+        }
+
+        // Handle deferred layout cache invalidation (e.g., from viewport size change
+        // that happened before DOM was built). Must be after resolve_deferred_tasks()
+        // so that inline layouts exist when we invalidate their caches.
+        if self.needs_layout_cache_invalidation {
+            self.invalidate_layout_caches();
+            self.needs_layout_cache_invalidation = false;
+        }
 
         // Merge stylo into taffy
         self.flush_styles_to_layout(root_node_id);

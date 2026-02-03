@@ -900,8 +900,16 @@ impl Drop for ViewportMut<'_> {
 
         let scale_has_changed =
             self.doc.viewport().scale_f64() != self.initial_viewport.scale_f64();
+        let size_has_changed = self.doc.viewport().window_size != self.initial_viewport.window_size;
+
         if scale_has_changed {
+            // Scale change requires full reconstruction (text shaping at new scale)
             self.doc.invalidate_inline_contexts();
+        } else if size_has_changed {
+            // Size-only change just needs cache invalidation for text re-wrapping.
+            // We set a flag and defer to resolve() because the DOM might be empty
+            // at this point (e.g., during initial window creation).
+            self.doc.needs_layout_cache_invalidation = true;
         }
     }
 }

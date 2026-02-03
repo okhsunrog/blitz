@@ -187,6 +187,10 @@ pub struct BaseDocument {
     pub(crate) viewport: Viewport,
     // Scroll within our viewport
     pub(crate) viewport_scroll: crate::Point<f64>,
+    // Flag to defer layout cache invalidation until resolve() when DOM may be empty
+    pub(crate) needs_layout_cache_invalidation: bool,
+    // Flag to track if we need full invalidation on first resolve (for Wayland init issues)
+    pub(crate) needs_initial_invalidation: bool,
 
     // Events
     pub(crate) tx: Sender<DocumentEvent>,
@@ -385,6 +389,8 @@ impl BaseDocument {
             viewport,
             devtool_settings: DevtoolSettings::default(),
             viewport_scroll: crate::Point::ZERO,
+            needs_layout_cache_invalidation: false,
+            needs_initial_invalidation: true,
             url: base_url,
             ua_stylesheets: HashMap::new(),
             nodes_to_stylesheet: BTreeMap::new(),
@@ -1228,12 +1234,19 @@ impl BaseDocument {
 
     pub fn set_viewport(&mut self, viewport: Viewport) {
         let scale_has_changed = viewport.scale_f64() != self.viewport.scale_f64();
+        let size_has_changed = viewport.window_size != self.viewport.window_size;
         self.viewport = viewport;
         self.set_stylist_device(make_device(&self.viewport, self.font_ctx.clone()));
         self.scroll_viewport_by(0.0, 0.0); // Clamp scroll offset
 
         if scale_has_changed {
+            // Scale change requires full reconstruction (text shaping at new scale)
             self.invalidate_inline_contexts();
+        } else if size_has_changed {
+            // Size-only change just needs cache invalidation for text re-wrapping.
+            // We set a flag and defer to resolve() because the DOM might be empty
+            // at this point (e.g., during initial window creation).
+            self.needs_layout_cache_invalidation = true;
         }
     }
 

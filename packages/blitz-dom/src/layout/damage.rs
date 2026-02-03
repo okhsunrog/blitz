@@ -326,6 +326,29 @@ impl HoistedPaintChildren {
 }
 
 impl BaseDocument {
+    /// Light-weight invalidation for size-only changes.
+    /// Only clears layout caches without triggering full inline layout reconstruction.
+    /// This allows text to be re-wrapped to new width without expensive text shaping.
+    pub(crate) fn invalidate_layout_caches(&mut self) {
+        for (_, node) in self.nodes.iter_mut() {
+            if !(node.flags.contains(NodeFlags::IS_IN_DOCUMENT)) {
+                continue;
+            }
+
+            // Clear taffy layout cache
+            node.cache.clear();
+
+            // Clear content_widths cache on inline layouts so it gets recalculated
+            if let Some(element) = node.data.downcast_element_mut() {
+                if let Some(inline_layout) = element.inline_layout_data.as_mut() {
+                    inline_layout.content_widths = None;
+                }
+            }
+        }
+    }
+
+    /// Full invalidation for scale changes.
+    /// Triggers complete reconstruction of inline layouts including text shaping.
     pub(crate) fn invalidate_inline_contexts(&mut self) {
         let scale = self.viewport.scale();
 
